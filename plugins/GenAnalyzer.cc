@@ -69,6 +69,9 @@ using reco::GenParticle;
 int ntotal_event ;
 int npassed_event ;
 
+unsigned int runId_;
+unsigned int lumiId_;
+unsigned long long eventId_;
 
 
 TH1D *H_tau_att_genHiggs_M_inv;
@@ -305,7 +308,9 @@ GenAnalyzer::GenAnalyzer(const edm::ParameterSet& iConfig)
    H_tau_att_Tau1_Tau2_dphi_deta     = fs->make<TH2D>("h_Tau1_Tau2_dphi_deta"   , "dphi vs deta^{gen Tau1_Tau2};dphi;deta" , 20,  0, .5 , 20,  0, .5);
    H_tau_att_Tau3_Tau4_dphi_deta     = fs->make<TH2D>("h_Tau3_Tau4_dphi_deta"   , "dphi vs deta^{gen Tau3_Tau4};dphi;deta" , 20,  0, .5 , 20,  0, .5);
 
-
+   RHTree->Branch("Event",  &eventId_);
+   RHTree->Branch("Run",  &runId_);
+   RHTree->Branch("LumiSection",  &lumiId_);
 
    RHTree->Branch("GenHiggs_inv",  &V_att_genHiggs_M_inv_);
    RHTree->Branch("GenA1_inv",  &V_att_genA1_M_inv_);
@@ -373,8 +378,10 @@ void
 GenAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
    using namespace edm;
-   // using namespace std;
-   // using namespace reco;
+
+   eventId_ = iEvent.id().event();
+   runId_ = iEvent.id().run();
+   lumiId_ = iEvent.id().luminosityBlock();
 
    V_att_genHiggs_M_inv = -1111.1111;
    V_att_genA1_M_inv    = -1111.1111;
