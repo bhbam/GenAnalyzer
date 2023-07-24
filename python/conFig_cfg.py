@@ -60,9 +60,9 @@ process.TFileService = cms.Service("TFileService",
 
 process.fevt = cms.EDAnalyzer('GenAnalyzer',
    # genParticles    = cms.untracked.InputTag('genParticles',"","GEN"),
-   genParticles    = cms.InputTag('genParticles',"","GEN"),
-   ak8GenJets    = cms.InputTag('ak8GenJets',"","GEN"),
-   genMetTrue    = cms.InputTag('genMetTrue',"","GEN"),
+   genParticles    = cms.InputTag('genParticles',"",""),
+   ak8GenJets    = cms.InputTag('ak8GenJets',"",""),
+   genMetTrue    = cms.InputTag('genMetTrue',"",""),
                               )
 
 process.p = cms.Path(process.fevt)
