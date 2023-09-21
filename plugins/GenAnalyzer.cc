@@ -66,8 +66,8 @@
 
 
 
-// int pdgid_ = 25; // A/H to tautau
-int pdgid_ = 553; // Upsilon 1S to tauatau
+int pdgid_ = 25; // A/H to tautau
+// int pdgid_ = 553; // Upsilon 1S to tauatau
 
 
 using std::vector;
