@@ -42,6 +42,10 @@
 #include "TH2D.h"
 #include "TTree.h"
 //
+#include "DataFormats/JetReco/interface/Jet.h"
+#include "DataFormats/JetReco/interface/CaloJet.h"
+#include "DataFormats/JetReco/interface/GenJet.h"
+//
 #include "TH1.h"
 #include "TH1F.h"
 #include "TH2.h"
@@ -62,7 +66,8 @@
 // If the analyzer does not use TFileService, please remove
 // the template argument to the base class so the class inherits
 // from  edm::one::EDAnalyzer<>
-// This will improve performance in multithreaded jobs.
+// This will improve performance in multithreaded jobs
+bool debug = true;
 using std::vector;
 using reco::GenParticle;
 
@@ -236,8 +241,12 @@ class GenAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
       // ----------member data ---------------------------
       // edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configuration file
       edm::Service<TFileService> fs;
+
       edm::EDGetTokenT<std::vector<reco::GenParticle> > genParticlesToken_;
       edm::InputTag genParticles_;
+
+      edm::EDGetTokenT<std::vector<reco::GenJet> > genJetsToken_;
+      edm::InputTag genJets_;
 
       TTree *RHTree;
 
@@ -355,7 +364,11 @@ GenAnalyzer::GenAnalyzer(const edm::ParameterSet& iConfig)
    RHTree->Branch("Tau3_Tau4_deta",  &V_att_Tau3_Tau4_deta_);
    RHTree->Branch("Tau3_Tau4_dphi",  &V_att_Tau3_Tau4_dphi_);
 
+
+
+
    genParticlesToken_   = consumes<std::vector<reco::GenParticle>>(iConfig.getParameter<edm::InputTag>("genParticles"));
+   genJetsToken_   = consumes<std::vector<reco::GenJet>>(iConfig.getParameter<edm::InputTag>("genJets"));
 
 }
 
@@ -372,7 +385,13 @@ GenAnalyzer::~GenAnalyzer()
 //
 // member functions
 //
-
+// Define struct to handle mapping for gen pho<->matched reco photons<->matched presel photons
+struct jet_tau_map {
+  unsigned int idx;
+  std::vector<unsigned int> matchedgenJetIdxs;
+  std::vector<unsigned int> matchedRecoTauIdxs;
+};
+std::vector<jet_tau_map> vTauJets;
 // ------------ method called for each event  ------------
 void
 GenAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
@@ -429,6 +448,9 @@ GenAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
    edm::Handle<std::vector<reco::GenParticle> > genParticles;
    iEvent.getByToken(genParticlesToken_,   genParticles);
 
+   edm::Handle<std::vector<reco::GenJet> > genJets;
+   iEvent.getByToken(genJetsToken_,   genJets);
+
 
   // unsigned int NAs = 0;
   // unsigned int NTau_fromA = 0;
@@ -436,12 +458,12 @@ GenAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
   //   if ( abs(iGen->pdgId()) != 15 || abs(iGen->mother()->pdgId()) != 25) continue;
   //   NTau_fromA++;
   // }
-  // std::cout << "  >>>>>> Number Tau from  A <<<<<"<<"    "  <<  NTau_fromA << std::endl;
+  // if (debug) std::cout << "  >>>>>> Number Tau from  A <<<<<"<<"    "  <<  NTau_fromA << std::endl;
   // for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
   //   if ( abs(iGen->pdgId()) != 25 || abs(iGen->daughter(0)->pdgId()) != 15 || abs(iGen->daughter(1)->pdgId()) != 15) continue;
   //   NAs++;
   // }
-  // std::cout << "  >>>>>> Number of A giving Tau <<<<<"<<"    "  <<  NAs << std::endl;
+  // if (debug) std::cout << "  >>>>>> Number of A giving Tau <<<<<"<<"    "  <<  NAs << std::endl;
 
 float genHiggs_mass_inv = -1111.1111;
 float genA1_mass_inv = -1111.1111;
@@ -487,13 +509,231 @@ float Tau3_Tau4_deta = -1111.1111;
 float Tau3_Tau4_dphi = -1111.1111;
 
 
-bool pass = false;
-for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
+//-----------------------------------------------------------------------------------------------------------------------------------------------
+float dR;
+std::vector<unsigned int> vGenTauIdxs;
+std::vector<unsigned int> vJetIdxs;
+bool passedGenSel;
+// unsigned int iGenParticle = 0;
+passedGenSel = false;
+// Find matched gen Tau index
+for (unsigned int iG=0; iG < genParticles->size(); iG++) {
 
-  if ( abs(iGen->pdgId()) != 35 || iGen->numberOfDaughters() != 2 || iGen->daughter(0)->pdgId() != 25 || iGen->daughter(1)->pdgId() != 25 ) continue;
+  reco::GenParticleRef iGen( genParticles, iG );
+  if ((std::abs(iGen->pdgId()) != 15 || iGen->status() != 2) || std::abs(iGen->mother()->pdgId()) != 25 || std::abs(iGen->mother()->mother()->pdgId()) != 35 || iGen->mother()->mother()->numberOfDaughters() != 2) continue;
+  float dR_Tau1_Tau2 = reco::deltaR( iGen->mother()->mother()->daughter(0)->daughter(0)->eta(), iGen->mother()->mother()->daughter(0)->daughter(0)->phi(), iGen->mother()->mother()->daughter(0)->daughter(1)->eta(), iGen->mother()->mother()->daughter(0)->daughter(1)->phi());
+  float dR_Tau3_Tau4 = reco::deltaR( iGen->mother()->mother()->daughter(1)->daughter(0)->eta(), iGen->mother()->mother()->daughter(1)->daughter(0)->phi(), iGen->mother()->mother()->daughter(1)->daughter(1)->eta(), iGen->mother()->mother()->daughter(1)->daughter(1)->phi());
+  if (dR_Tau1_Tau2 < 0.4 || dR_Tau3_Tau4 < 0.4) continue;
+
+  vGenTauIdxs.push_back(iG);
+  // if (debug) std::cout << "  >>>>>> Genparticle idx:  "<<iG<< std::endl;
+} //genparticles  vGenTauIdxs
+if (debug) std::cout << "  >>>>>> Total gen tau matched :  "<<vGenTauIdxs.size()<< std::endl;
+if (vGenTauIdxs.size() > 3){
+passedGenSel = true;
+}
+if (debug) std::cout << "  >>>>>> passedGenSel>>> :  "<<passedGenSel<< std::endl;
+
+
+float minDR = 100.;
+int minDR_idx = -1;
+vTauJets.clear();
+
+// / Find matched gen Jet index matched to gen Tau
+////////// Build gen Tau-jet mapping //////////
+
+// Create mapping between gen tau<->matched jets
+// For each gen tau, find "reco" jets matched to it,
+// Loop over valid gen Tau idxs
+  for ( auto& iG : vGenTauIdxs ) {
+    reco::GenParticleRef iGenTau( genParticles, iG );
+    std::vector<unsigned int> vMatchedgenJetIdxs;
+    // Do dR match to closest reco jets
+    minDR = 100.;
+    minDR_idx = -1;
+
+    for ( unsigned int iJ = 0; iJ < genJets->size(); iJ++ ) {
+       reco::GenJetRef iJet( genJets, iJ );
+       dR = reco::deltaR( iJet->eta(),iJet->phi(), iGenTau->eta(),iGenTau->phi() );
+       if ( dR > minDR ) continue;
+       minDR = dR;
+       minDR_idx = iJ;
+
+      } // gen jets
+      // Require minimum dR to declare match
+      // Protects against matching to PU
+      // minDR only needs to be generous enough so that one of the gen taus match to a reco jets for analysis
+    if ( minDR > 0.4 ) continue;
+    // Declare gen jet matching to gen tau: only store unique reco idxs
+    if ( std::find(vMatchedgenJetIdxs.begin(), vMatchedgenJetIdxs.end(), minDR_idx) != vMatchedgenJetIdxs.end() ) continue;
+      vMatchedgenJetIdxs.push_back( minDR_idx );
+
+    // store the matched jets ID to a vector
+    for ( auto& iJ : vMatchedgenJetIdxs ) {
+      vJetIdxs.push_back( iJ );
+      // if (debug) std::cout << " ----> matched jet [" << iJ << "] " <<  std::endl;
+      }
+    // Store this mappin
+    jet_tau_map iTau_obj = { iG, vMatchedgenJetIdxs };
+    vTauJets.push_back( iTau_obj );
+    // if (debug) std::cout << " ----> jet_tau_map " << iTau_obj <<  std::endl;
+   } // selected genTua
+if (debug) std::cout << " ----> Total matched gen matched jet " << vTauJets.size() <<  std::endl;
+
+
+// float inv_jet_mass=0;
+// float inv_tau_mass=0;
+for ( auto const& ii: vTauJets ) {
+
+    // Skip electrons which fails HE edge cut
+    if(ii.matchedgenJetIdxs.empty())continue;
+    if ( std::find(vJetIdxs.begin(), vJetIdxs.end(), ii.matchedgenJetIdxs[0]) == vJetIdxs.end()) continue;
+
+    reco::GenParticleRef iGen( genParticles, ii.idx );
+    reco::GenJetRef iJet( genJets, ii.matchedgenJetIdxs[0] );
+
+    // if (debug) std::cout << " ii.idx: "<< ii.idx  << std::endl;
+    // if (debug) std::cout << " ii.matchedgenJetIdxs[0]: "<< ii.matchedgenJetIdxs[0] << std::endl;
+    // if (debug) std::cout << " Gen pt: "<< iGen->pt() << " eta: " <<iGen->eta() << " phi: " <<iGen->phi() << std::endl;
+    // if (debug) std::cout << " Jet pt: "<< iJet->pt() << " eta: " <<iJet->eta() << " phi: " <<iJet->phi() << std::endl;
+    if (debug) std::cout << "  >>>>>> Jet  <<<<<"<<"<<< status: "<<iJet->status()<<"<<<pt:  "<<iJet->pt()<<"<<<eta:  "<<iJet->eta()<<"<<<phi:  "<<iJet->phi()<<"<<<mass:  "<<iJet->mass() << std::endl;
+    if (debug) std::cout << "  >>>>>> gen Tau  <<<<<"<<"<<< status: "<<iGen->status()<<"<<<pt:  "<<iGen->pt()<<"<<<eta:  "<<iGen->eta()<<"<<<phi:  "<<iGen->phi()<<"<<<mass:  "<<iGen->mass() << std::endl;
+}
+
+// if (debug) std::cout << " inv_jet_mass: "<< inv_jet_mass/2  << std::endl;
+// if (debug) std::cout << " inv_tau_mass: "<< inv_tau_mass/2  << std::endl;
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+
+// Match gen to gen Jet
+if (vTauJets.size()==4 && passedGenSel) {
+if (debug) std::cout<<">>>>>genJet size"<<genJets->size()<<std::endl;
+for ( unsigned int iJ1(0); iJ1 != genJets->size(); ++iJ1 ) {
+   reco::GenJetRef iJet1( genJets, iJ1 );
+    bool skip_tau = true;
+    for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
+      if (!(iGen->isLastCopy()) || iGen->pdgId() != 35 || iGen->daughter(0)->pdgId() != 25 || abs(iGen->daughter(0)->daughter(0)->pdgId()) != 15 || iGen->numberOfDaughters() != 2 || iGen->daughter(0)->numberOfDaughters() != 2 || iGen->daughter(0)->daughter(0)->status() != 2) continue;
+      float jettaudR1 = reco::deltaR( iJet1->eta(),iJet1->phi(), iGen->daughter(0)->daughter(0)->eta(), iGen->daughter(0)->daughter(0)->phi() );
+      float gendRtautau12 = reco::deltaR( iGen->daughter(0)->daughter(0)->eta(), iGen->daughter(0)->daughter(0)->phi(), iGen->daughter(0)->daughter(1)->eta(), iGen->daughter(0)->daughter(1)->phi());
+      if ( jettaudR1 < 0.4 && gendRtautau12 > 0.4 ){
+
+        if (debug) std::cout << "  >>>>>> gen Tau1 <<<<<"<<"<<< status: "<<iGen->daughter(0)->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(0)->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(0)->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(0)->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(0)->daughter(0)->mass() << std::endl;
+        skip_tau = false;
+        break;
+      }
+    }
+    if ( skip_tau ) {
+    // if (debug) std::cout << " JET DO NOT MATCH A GEN TAU1" << std::endl;
+      continue;
+    }
+
+  // unsigned int tau_combinations1 = 0;
+  for ( unsigned int iJ2(0); iJ2 != genJets->size(); ++iJ2 ) {
+    if ( iJ2 == iJ1 ) continue;
+    reco::GenJetRef iJet2( genJets, iJ2 );
+
+      bool skip_tau = true;
+      for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
+
+        if (!(iGen->isLastCopy()) || iGen->pdgId() != 35 || iGen->daughter(0)->pdgId() != 25 || abs(iGen->daughter(0)->daughter(1)->pdgId()) != 15 || iGen->numberOfDaughters() != 2 || iGen->daughter(0)->numberOfDaughters() != 2 || iGen->daughter(0)->daughter(1)->status() != 2) continue;
+        float jettaudR2 = reco::deltaR( iJet2->eta(),iJet2->phi(), iGen->daughter(0)->daughter(1)->eta(), iGen->daughter(0)->daughter(1)->phi() );
+        float gendRtautau12 = reco::deltaR( iGen->daughter(0)->daughter(0)->eta(), iGen->daughter(0)->daughter(0)->phi(), iGen->daughter(0)->daughter(1)->eta(), iGen->daughter(0)->daughter(1)->phi() );
+        if ( jettaudR2 < 0.4 && gendRtautau12 > 0.4 ){
+          skip_tau = false;
+          if (debug) std::cout << "  >>>>>> gen Tau2 <<<<<"<<"<<< status: "<<iGen->daughter(0)->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(0)->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(0)->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(0)->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(0)->daughter(1)->mass() << std::endl;
+          break;
+        }
+      }
+      if ( skip_tau ) {
+        // if (debug) std::cout << " JET DO NOT MATCH A GEN TAU2" << std::endl;
+        continue;
+      }
+
+    float jetjetdR12 = reco::deltaR( iJet1->eta(),iJet1->phi(), iJet2->eta(),iJet2->phi() );
+    if ( jetjetdR12 < 0.4 ) continue;
+    if (debug) std::cout << " Jet dR = " << jetjetdR12 << std::endl;
+    // ++tau_combinations;
+
+
+
+
+  for ( unsigned int iJ3(0); iJ3 != genJets->size(); ++iJ3 ) {
+    if ( iJ3 == iJ1 || iJ3==iJ2) continue;
+     reco::GenJetRef iJet3( genJets, iJ3 );
+      bool skip_tau = true;
+      for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
+        if (!(iGen->isLastCopy()) || iGen->pdgId() != 35 || iGen->daughter(1)->pdgId() != 25 || abs(iGen->daughter(1)->daughter(0)->pdgId()) != 15 || iGen->numberOfDaughters() != 2 || iGen->daughter(1)->numberOfDaughters() != 2 || iGen->daughter(1)->daughter(0)->status() != 2) continue;
+        float jettaudR3 = reco::deltaR( iJet3->eta(),iJet3->phi(), iGen->daughter(1)->daughter(0)->eta(), iGen->daughter(1)->daughter(0)->phi() );
+        float gendRtautau34 = reco::deltaR( iGen->daughter(1)->daughter(0)->eta(), iGen->daughter(1)->daughter(0)->phi(), iGen->daughter(1)->daughter(1)->eta(), iGen->daughter(1)->daughter(1)->phi());
+        if ( jettaudR3 < 0.4 && gendRtautau34 > 0.4 ){
+          skip_tau = false;
+          if (debug) std::cout << "  >>>>>> gen Tau3 <<<<<"<<"<<< status: "<<iGen->daughter(1)->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(1)->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(1)->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(1)->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(1)->daughter(0)->mass() << std::endl;
+          break;
+        }
+      }
+      if ( skip_tau ) {
+      // if (debug) std::cout << " JET DO NOT MATCH A GEN TAU3" << std::endl;
+        continue;
+      }
+
+    // unsigned int tau_combinations1 = 0;
+    for ( unsigned int iJ4(0); iJ4 != genJets->size(); ++iJ4 ) {
+      if ( iJ4 == iJ1 || iJ4==iJ2 || iJ4==iJ3  ) continue;
+      reco::GenJetRef iJet4( genJets, iJ4 );
+        bool skip_tau = true;
+        for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
+
+          if (!(iGen->isLastCopy()) || iGen->pdgId() != 35 || iGen->daughter(1)->pdgId() != 25 || abs(iGen->daughter(1)->daughter(1)->pdgId()) != 15 || iGen->numberOfDaughters() != 2 || iGen->daughter(1)->numberOfDaughters() != 2 || iGen->daughter(1)->daughter(1)->status() != 2) continue;
+          float jettaudR4 = reco::deltaR( iJet4->eta(),iJet4->phi(), iGen->daughter(1)->daughter(1)->eta(), iGen->daughter(1)->daughter(1)->phi() );
+          float gendRtautau34 = reco::deltaR( iGen->daughter(1)->daughter(0)->eta(), iGen->daughter(1)->daughter(0)->phi(), iGen->daughter(1)->daughter(1)->eta(), iGen->daughter(1)->daughter(1)->phi() );
+
+          if ( jettaudR4 < 0.4 && gendRtautau34 > 0.4 ){
+            skip_tau = false;
+            if (debug) std::cout << "  >>>>>> gen Tau4 <<<<<"<<"<<< status: "<<iGen->daughter(1)->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(1)->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(1)->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(1)->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(1)->daughter(1)->mass() << std::endl;
+            break;
+          }
+        }
+        if ( skip_tau ) {
+          // if (debug) std::cout << " JET DO NOT MATCH A GEN TAU4" << std::endl;
+          continue;
+        }
+
+      float jetjetdR34 = reco::deltaR( iJet3->eta(),iJet3->phi(), iJet4->eta(),iJet4->phi() );
+      if ( jetjetdR34 < 0.4 ) continue;
+      if (debug) std::cout << " Jet dR = " << jetjetdR34 << std::endl;
+
+
+      if (debug) std::cout << "  >>>>>> Jet1  <<<<<"<<"<<< status: "<<iJet1->status()<<"<<<pt:  "<<iJet1->pt()<<"<<<eta:  "<<iJet1->eta()<<"<<<phi:  "<<iJet1->phi()<<"<<<mass:  "<<iJet1->mass() << std::endl;
+      if (debug) std::cout << "  >>>>>> Jet2  <<<<<"<<"<<< status: "<<iJet2->status()<<"<<<pt:  "<<iJet2->pt()<<"<<<eta:  "<<iJet2->eta()<<"<<<phi:  "<<iJet2->phi()<<"<<<mass:  "<<iJet2->mass() << std::endl;
+      if (debug) std::cout << "  >>>>>> Jet3  <<<<<"<<"<<< status: "<<iJet3->status()<<"<<<pt:  "<<iJet3->pt()<<"<<<eta:  "<<iJet3->eta()<<"<<<phi:  "<<iJet3->phi()<<"<<<mass:  "<<iJet3->mass() << std::endl;
+      if (debug) std::cout << "  >>>>>> Jet4  <<<<<"<<"<<< status: "<<iJet4->status()<<"<<<pt:  "<<iJet4->pt()<<"<<<eta:  "<<iJet4->eta()<<"<<<phi:  "<<iJet4->phi()<<"<<<mass:  "<<iJet4->mass() << std::endl;
+      TLorentzVector l_gen_jet1  = SetTaus(iJet1->pt(), iJet1->eta(), iJet1->phi(), iJet1->mass());
+      TLorentzVector l_gen_jet2  = SetTaus(iJet2->pt(), iJet2->eta(), iJet2->phi(), iJet2->mass());
+      TLorentzVector l_gen_jet3  = SetTaus(iJet3->pt(), iJet3->eta(), iJet3->phi(), iJet3->mass());
+      TLorentzVector l_gen_jet4  = SetTaus(iJet4->pt(), iJet4->eta(), iJet4->phi(), iJet4->mass());
+      TLorentzVector  l_GenA1_jet = l_gen_jet1 + l_gen_jet2;
+      TLorentzVector  l_GenA2_jet = l_gen_jet3 + l_gen_jet4;
+      if (debug) std::cout << "  >>>>>> Invariant of A1 from gen Jet <<<<<"<<l_GenA1_jet.M()<<std::endl;
+      if (debug) std::cout << "  >>>>>> Invariant of A2 from gen Jet <<<<<"<<l_GenA2_jet.M()<<std::endl;
+
+
+
+
+}//iJ4
+}//iJ3
+} // iJ2
+
+  // if ( tau_combinations1 == 0 ) continue;
+} //end iJ1
+}
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------
+bool pass = false;
+if (vTauJets.size()==4) {
+for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
+  if (pass) continue;
+  if ( abs(!(iGen->isLastCopy()) || iGen->pdgId()) != 35 || iGen->numberOfDaughters() != 2 || iGen->daughter(0)->pdgId() != 25 || iGen->daughter(1)->pdgId() != 25 ) continue;
   if ( abs(iGen->daughter(0)->daughter(0)->pdgId()) != 15 || abs(iGen->daughter(0)->daughter(1)->pdgId()) != 15 || abs(iGen->daughter(1)->daughter(0)->pdgId()) != 15 || abs(iGen->daughter(1)->daughter(1)->pdgId()) != 15 ) continue;
   if ( abs(iGen->daughter(0)->daughter(0)->status()) != 2 || abs(iGen->daughter(0)->daughter(1)->status()) != 2 || abs(iGen->daughter(1)->daughter(0)->status()) != 2 || abs(iGen->daughter(1)->daughter(1)->status()) != 2 ) continue;
-  pass = true;
+
 
   TLorentzVector GenTau1  = SetTaus(iGen->daughter(0)->daughter(0)->pt(), iGen->daughter(0)->daughter(0)->eta(), iGen->daughter(0)->daughter(0)->phi(), iGen->daughter(0)->daughter(0)->mass());
   TLorentzVector GenTau2  = SetTaus(iGen->daughter(0)->daughter(1)->pt(), iGen->daughter(0)->daughter(1)->eta(), iGen->daughter(0)->daughter(1)->phi(), iGen->daughter(0)->daughter(1)->mass());
@@ -560,28 +800,28 @@ for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); i
   Tau3_Tau4_dphi = abs(Tau3_phi-Tau4_phi);
 
 
-  // std::cout << "  >>>>>> Higgs gen (35) <<<<<"<<"<<< status: "<<iGen->status()<<"<<<pt:  "<<iGen->pt()<<"<<<eta:  "<<iGen->eta()<<"<<<phi:  "<<iGen->phi()<<"<<<mass:  "<<iGen->mass() << std::endl;
-  // std::cout << "  >>>>>> Higgs LorentzVector (35) <<<<<"<<"<<<mass:  "<<GenHiggs.M() << std::endl;
-  // std::cout << "  >>>>>> A1 gen (25) <<<<<"<<"<<< status: "<<iGen->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(0)->mass() << std::endl;
-  // std::cout << "  >>>>>> A1 LorentzVector (25) <<<<<"<<"<<<mass:  "<< GenA1.M() << std::endl;
-  // std::cout << "  >>>>>> A2 gen (25) <<<<<"<<"<<< status: "<<iGen->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(1)->mass() << std::endl;
-  // std::cout << "  >>>>>> A2 LorentzVector (25) <<<<<"<<"<<<mass:  "<< GenA2.M() << std::endl;
-  // std::cout << "  >>>>>> Tau1 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(0)->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(0)->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(0)->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(0)->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(0)->daughter(0)->mass() << std::endl;
-  // std::cout << "  >>>>>> Tau2 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(0)->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(0)->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(0)->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(0)->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(0)->daughter(1)->mass() << std::endl;
-  // std::cout << "  >>>>>> Tau3 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(1)->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(1)->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(1)->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(1)->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(1)->daughter(0)->mass() << std::endl;
-  // std::cout << "  >>>>>> Tau4 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(1)->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(1)->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(1)->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(1)->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(1)->daughter(1)->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> Higgs gen (35) <<<<<"<<"<<< status: "<<iGen->status()<<"<<<pt:  "<<iGen->pt()<<"<<<eta:  "<<iGen->eta()<<"<<<phi:  "<<iGen->phi()<<"<<<mass:  "<<iGen->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> Higgs LorentzVector (35) <<<<<"<<"<<<mass:  "<<GenHiggs.M() << std::endl;
+  // if (debug) std::cout << "  >>>>>> A1 gen (25) <<<<<"<<"<<< status: "<<iGen->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(0)->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> A1 LorentzVector (25) <<<<<"<<"<<<mass:  "<< GenA1.M() << std::endl;
+  // if (debug) std::cout << "  >>>>>> A2 gen (25) <<<<<"<<"<<< status: "<<iGen->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(1)->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> A2 LorentzVector (25) <<<<<"<<"<<<mass:  "<< GenA2.M() << std::endl;
+  // if (debug) std::cout << "  >>>>>> Tau1 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(0)->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(0)->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(0)->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(0)->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(0)->daughter(0)->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> Tau2 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(0)->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(0)->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(0)->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(0)->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(0)->daughter(1)->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> Tau3 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(1)->daughter(0)->status()<<"<<<pt:  "<<iGen->daughter(1)->daughter(0)->pt()<<"<<<eta:  "<<iGen->daughter(1)->daughter(0)->eta()<<"<<<phi:  "<<iGen->daughter(1)->daughter(0)->phi()<<"<<<mass:  "<<iGen->daughter(1)->daughter(0)->mass() << std::endl;
+  // if (debug) std::cout << "  >>>>>> Tau4 gen (15) <<<<<"<<"<<< status: "<<iGen->daughter(1)->daughter(1)->status()<<"<<<pt:  "<<iGen->daughter(1)->daughter(1)->pt()<<"<<<eta:  "<<iGen->daughter(1)->daughter(1)->eta()<<"<<<phi:  "<<iGen->daughter(1)->daughter(1)->phi()<<"<<<mass:  "<<iGen->daughter(1)->daughter(1)->mass() << std::endl;
   //
-  // std::cout << "  >>>>>> dR_A1_A2:  "<<dR_A1_A2<< std::endl;
-  // std::cout << "  >>>>>> dR_H_A1:  "<<dR_H_A1<< std::endl;
-  // std::cout << "  >>>>>> dR_H_A2:  "<<dR_H_A2<< std::endl;
-  // std::cout << "  >>>>>> dR_A1_Tau1:  "<<dR_A1_Tau1<< std::endl;
-  // std::cout << "  >>>>>> dR_A1_Tau2:  "<<dR_A1_Tau2<< std::endl;
-  // std::cout << "  >>>>>> dR_A2_Tau3:  "<<dR_A2_Tau3<< std::endl;
-  // std::cout << "  >>>>>> dR_A2_Tau4:  "<<dR_A2_Tau4<< std::endl;
-  // std::cout << "  >>>>>> dR_Tau1_Tau2:  "<<dR_Tau1_Tau2<< std::endl;
-  // std::cout << "  >>>>>> dR_Tau3_Tau4:  "<<dR_Tau3_Tau4<< std::endl;
-
-  }
+  // if (debug) std::cout << "  >>>>>> dR_A1_A2:  "<<dR_A1_A2<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_H_A1:  "<<dR_H_A1<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_H_A2:  "<<dR_H_A2<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_A1_Tau1:  "<<dR_A1_Tau1<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_A1_Tau2:  "<<dR_A1_Tau2<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_A2_Tau3:  "<<dR_A2_Tau3<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_A2_Tau4:  "<<dR_A2_Tau4<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_Tau1_Tau2:  "<<dR_Tau1_Tau2<< std::endl;
+  // if (debug) std::cout << "  >>>>>> dR_Tau3_Tau4:  "<<dR_Tau3_Tau4<< std::endl;
+  pass = true;
+}}
 ntotal_event++;
 if (pass) {
 npassed_event++;
@@ -786,7 +1026,7 @@ GenAnalyzer::beginJob()
 void
 GenAnalyzer::endJob()
 {
-   std::cout << "  >>>>>> Total events selected events <<<<<  "<<npassed_event<<"/"<<ntotal_event<<std::endl;
+   if (debug) std::cout << "  >>>>>> Total events selected events <<<<<  "<<npassed_event<<"/"<<ntotal_event<<std::endl;
 }
 
 // ------------ method fills 'descriptions' with the allowed parameters for the module  ------------

@@ -62,6 +62,7 @@ process.fevt = cms.EDAnalyzer('GenAnalyzer',
    # genParticles    = cms.untracked.InputTag('genParticles',"","GEN"),
    genParticles    = cms.InputTag('genParticles',"","GEN"),
    ak8GenJets    = cms.InputTag('ak8GenJets',"","GEN"),
+   genJets    = cms.InputTag('ak4GenJets',"","GEN"),
    genMetTrue    = cms.InputTag('genMetTrue',"","GEN"),
                               )
 
