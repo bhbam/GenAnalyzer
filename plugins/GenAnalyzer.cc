@@ -600,8 +600,6 @@ for ( auto const& ii: vTauJets ) {
     if (debug) std::cout << "  >>>>>> gen Tau  <<<<<"<<"<<< status: "<<iGen->status()<<"<<<pt:  "<<iGen->pt()<<"<<<eta:  "<<iGen->eta()<<"<<<phi:  "<<iGen->phi()<<"<<<mass:  "<<iGen->mass() << std::endl;
 }
 
-// if (debug) std::cout << " inv_jet_mass: "<< inv_jet_mass/2  << std::endl;
-// if (debug) std::cout << " inv_tau_mass: "<< inv_tau_mass/2  << std::endl;
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 
 // Match gen to gen Jet
@@ -727,10 +725,10 @@ for ( unsigned int iJ1(0); iJ1 != genJets->size(); ++iJ1 ) {
 }
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------
 bool pass = false;
-if (vTauJets.size()==4) {
+// if (vTauJets.size()==4) {
 for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); iGen != genParticles->end(); ++iGen) {
   if (pass) continue;
-  if ( abs(!(iGen->isLastCopy()) || iGen->pdgId()) != 35 || iGen->numberOfDaughters() != 2 || iGen->daughter(0)->pdgId() != 25 || iGen->daughter(1)->pdgId() != 25 ) continue;
+  if ( !(iGen->isLastCopy()) || iGen->pdgId() != 35 || iGen->numberOfDaughters() != 2 || iGen->daughter(0)->pdgId() != 25 || iGen->daughter(1)->pdgId() != 25 ) continue;
   if ( abs(iGen->daughter(0)->daughter(0)->pdgId()) != 15 || abs(iGen->daughter(0)->daughter(1)->pdgId()) != 15 || abs(iGen->daughter(1)->daughter(0)->pdgId()) != 15 || abs(iGen->daughter(1)->daughter(1)->pdgId()) != 15 ) continue;
   if ( abs(iGen->daughter(0)->daughter(0)->status()) != 2 || abs(iGen->daughter(0)->daughter(1)->status()) != 2 || abs(iGen->daughter(1)->daughter(0)->status()) != 2 || abs(iGen->daughter(1)->daughter(1)->status()) != 2 ) continue;
 
@@ -821,7 +819,8 @@ for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); i
   // if (debug) std::cout << "  >>>>>> dR_Tau1_Tau2:  "<<dR_Tau1_Tau2<< std::endl;
   // if (debug) std::cout << "  >>>>>> dR_Tau3_Tau4:  "<<dR_Tau3_Tau4<< std::endl;
   pass = true;
-}}
+}
+// }
 ntotal_event++;
 if (pass) {
 npassed_event++;
