@@ -54,6 +54,12 @@
 #include "DataFormats/Math/interface/deltaR.h"
 #include "TLorentzVector.h"
 //
+#include "FWCore/Common/interface/TriggerNames.h"
+#include "FWCore/Common/interface/TriggerResultsByName.h"
+#include "HLTrigger/HLTcore/interface/HLTConfigProvider.h"
+#include "DataFormats/HLTReco/interface/TriggerObject.h"
+#include "DataFormats/Common/interface/TriggerResults.h"
+#include "DataFormats/Common/interface/ValueMap.h"
 
 
 // class declaration
@@ -237,7 +243,10 @@ class GenAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResources>  {
       // edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configuration file
       edm::Service<TFileService> fs;
       edm::EDGetTokenT<std::vector<reco::GenParticle> > genParticlesToken_;
-      edm::InputTag genParticles_;
+      // edm::InputTag genParticles_;
+
+      edm::EDGetTokenT<edm::TriggerResults> triggerResultsToken_ ;
+      // edm::InputTag triggerResults_ ;
 
       TTree *RHTree;
 
@@ -356,6 +365,7 @@ GenAnalyzer::GenAnalyzer(const edm::ParameterSet& iConfig)
    RHTree->Branch("Tau3_Tau4_dphi",  &V_att_Tau3_Tau4_dphi_);
 
    genParticlesToken_   = consumes<std::vector<reco::GenParticle>>(iConfig.getParameter<edm::InputTag>("genParticles"));
+   triggerResultsToken_      = consumes<edm::TriggerResults> (iConfig.getParameter<edm::InputTag>("triggerResults"));
 
 }
 
@@ -428,6 +438,7 @@ GenAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 
    edm::Handle<std::vector<reco::GenParticle> > genParticles;
    iEvent.getByToken(genParticlesToken_,   genParticles);
+
 
 
   // unsigned int NAs = 0;
@@ -580,6 +591,29 @@ for (reco::GenParticleCollection::const_iterator iGen = genParticles->begin(); i
   // std::cout << "  >>>>>> dR_A2_Tau4:  "<<dR_A2_Tau4<< std::endl;
   // std::cout << "  >>>>>> dR_Tau1_Tau2:  "<<dR_Tau1_Tau2<< std::endl;
   // std::cout << "  >>>>>> dR_Tau3_Tau4:  "<<dR_Tau3_Tau4<< std::endl;
+
+  std::cout << " >>>>>> Checking TriggerResults" << std::endl;
+  int pass_trigger = 0;
+  // Study of trigger bit
+  //hltConfig_.init(iEvent,iSetup)
+  edm::Handle<edm::TriggerResults> hltresults;
+  iEvent.getByToken(triggerResultsToken_,hltresults);
+  if (!hltresults.isValid()) {
+    std::cout << "!!! Error in getting TriggerResults product from Event !!!" << std::endl;
+    // return false;
+  }
+  int ntrigs = hltresults->size();
+  edm::TriggerNames const& triggerNames = iEvent.triggerNames(*hltresults);
+  for (int itrig = 0; itrig != ntrigs; ++itrig) {
+    TString trigName = triggerNames.triggerName(itrig);
+    bool accept = hltresults->accept(itrig);
+    if (!(accept)) continue;
+    std::cout << " Accept Triggers---------> " << trigName << std::endl;
+    pass_trigger += 1;
+  }
+  // if (pass_trigger < 1) {
+  //   return false;
+  // }
 
   }
 ntotal_event++;
