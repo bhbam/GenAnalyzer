@@ -365,7 +365,7 @@ GenAnalyzer::GenAnalyzer(const edm::ParameterSet& iConfig)
    RHTree->Branch("Tau3_Tau4_dphi",  &V_att_Tau3_Tau4_dphi_);
 
    genParticlesToken_   = consumes<std::vector<reco::GenParticle>>(iConfig.getParameter<edm::InputTag>("genParticles"));
-   triggerResultsToken_      = consumes<edm::TriggerResults> (iConfig.getParameter<edm::InputTag>("triggerResults"));
+   triggerResultsToken_      = consumes<edm::TriggerResults> (iConfig.getParameter<edm::InputTag>("hltresults"));
 
 }
 

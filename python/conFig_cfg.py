@@ -67,7 +67,7 @@ process.fevt = cms.EDAnalyzer('GenAnalyzer',
    # genMetTrue    = cms.InputTag('genMetTrue',"","GEN"),
    genMetTrue    = cms.InputTag('genMetTrue',"",""),
 
-   triggerResult = cms.InputTag('triggerResult', "", "")
+   hltresults = cms.InputTag('TriggerResults', "", "HLT"),
                               )
 
 process.p = cms.Path(process.fevt)
